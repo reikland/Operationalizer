@@ -12,12 +12,19 @@ EXAMPLES_REL = Path(
 EXAMPLES_PATH = CACHE_DIR / EXAMPLES_REL
 
 
-def initialize_cache() -> None:
-    """Prepare cache artifacts without moving the working directory."""
+def initialize_cache(script_dir: Path | None = None) -> None:
+    """Prepare cache artifacts without moving the working directory.
+
+    Optionally mirror the main script into the cache directory so
+    deployments that still run from the cache path can locate ``app.py``.
+    """
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     ensure_question_examples_file()
     mirror_examples_into_cwd()
+
+    if script_dir:
+        mirror_script_into_cache(script_dir)
 
 
 def ensure_question_examples_file() -> Path:
@@ -63,4 +70,22 @@ def mirror_examples_into_cwd() -> None:
         cwd_target.write_text(EXAMPLES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     except Exception:
         # Best-effort mirror; downstream code still has the cache copy.
+        pass
+
+
+def mirror_script_into_cache(script_dir: Path) -> None:
+    """Ensure the primary script is reachable inside the cache directory."""
+
+    try:
+        source = script_dir / "app.py"
+        if not source.exists():
+            return
+
+        target = CACHE_DIR / source.name
+        if target.exists():
+            return
+
+        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    except Exception:
+        # If mirroring fails, the app can still run from its original location.
         pass

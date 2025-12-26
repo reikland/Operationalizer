@@ -12,7 +12,7 @@ from operationalizer.utils import run_async
 APP_DIR = Path(__file__).resolve().parent
 
 # Cache must be prepared before importing forecasting_tools or pipeline helpers
-initialize_cache()
+initialize_cache(script_dir=APP_DIR)
 
 from operationalizer.pipeline import run_pipeline  # noqa: E402
 
