@@ -1,10 +1,11 @@
 # bootstrap.py
 from __future__ import annotations
 
+import os
 import json
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
-import os
 import threading
 
 APP_DIR = Path(__file__).resolve().parent
@@ -50,6 +51,29 @@ def ensure_question_examples_file() -> Path:
         return EXAMPLES_PATH
 
 
+def ensure_app_symlink() -> Path:
+    """Create a symlink to the repository inside the cache.
+
+    Streamlit sometimes reloads from the working directory; when the app is
+    started from inside ``CACHE_DIR`` (e.g., after ``forecasting_tools_cwd``
+    changed the CWD) it expects ``Operationalizer/app.py`` to exist there. To
+    keep imports stable without duplicating the codebase, we create a symlink
+    to the real repo. If symlinks are not supported, fall back to copying.
+    """
+
+    target = CACHE_DIR / APP_DIR.name
+
+    if target.exists():
+        return target
+
+    try:
+        target.symlink_to(APP_DIR, target_is_directory=True)
+    except OSError:
+        shutil.copytree(APP_DIR, target)
+
+    return target
+
+
 @contextmanager
 def forecasting_tools_cwd():
     """
@@ -57,6 +81,7 @@ def forecasting_tools_cwd():
     de forecasting_tools (qui attend un chemin relatif), puis on revient.
     """
     ensure_question_examples_file()
+    ensure_app_symlink()
     with _CWD_LOCK:
         prev = Path.cwd()
         os.chdir(CACHE_DIR)
@@ -72,3 +97,4 @@ def bootstrap_all() -> None:
     On s'assure seulement que le fichier attendu existe dans le cache.
     """
     ensure_question_examples_file()
+    ensure_app_symlink()
