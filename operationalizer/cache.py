@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +13,11 @@ EXAMPLES_PATH = CACHE_DIR / EXAMPLES_REL
 
 
 def initialize_cache() -> None:
-    """Prepare the cache directory and ensure the examples JSON exists."""
+    """Prepare cache artifacts without moving the working directory."""
+
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    os.chdir(CACHE_DIR)
     ensure_question_examples_file()
+    mirror_examples_into_cwd()
 
 
 def ensure_question_examples_file() -> Path:
@@ -49,3 +49,18 @@ def ensure_question_examples_file() -> Path:
         )
 
     return EXAMPLES_PATH
+
+
+def mirror_examples_into_cwd() -> None:
+    """Copy examples into the current working directory for relative opens."""
+
+    try:
+        cwd_target = Path.cwd() / EXAMPLES_REL
+        if cwd_target.exists():
+            return
+
+        cwd_target.parent.mkdir(parents=True, exist_ok=True)
+        cwd_target.write_text(EXAMPLES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    except Exception:
+        # Best-effort mirror; downstream code still has the cache copy.
+        pass
