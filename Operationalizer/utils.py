@@ -7,14 +7,14 @@ import re
 import textwrap
 import urllib.request
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List
 
-# Path relatif attendu upstream par forecasting_tools (open() relatif au CWD)
+# Path relatif attendu upstream (open() relatif au CWD)
 EXAMPLES_REL = Path(
     "forecasting_tools/agents_and_tools/question_generators/q3_q4_quarterly_questions.json"
 )
 
-# URL raw GitHub (optionnelle) pour récupérer le fichier réel sans importer forecasting_tools
+# URL raw GitHub (optionnelle) pour récupérer le vrai fichier sans importer forecasting_tools
 EXAMPLES_RAW_URL = (
     "https://raw.githubusercontent.com/Metaculus/forecasting-tools/main/"
     "forecasting_tools/agents_and_tools/question_generators/q3_q4_quarterly_questions.json"
@@ -47,10 +47,7 @@ def get_app_dir(app_file: str) -> Path:
 
 
 def examples_runtime_path() -> Path:
-    """
-    Chemin ABSOLU du fichier examples, mais placé à un emplacement RELATIF
-    au CWD (Path.cwd()) pour satisfaire le open(relpath) upstream.
-    """
+    """Chemin absolu du fichier examples, placé à l'emplacement relatif au CWD attendu par forecasting_tools."""
     return Path.cwd() / EXAMPLES_REL
 
 
@@ -62,19 +59,13 @@ def _download_text(url: str, timeout_sec: int = 10) -> str:
     )
     with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
         data = resp.read()
-    # Le fichier upstream est du JSON UTF-8
     return data.decode("utf-8")
 
 
 def ensure_question_examples_file() -> Path:
     """
-    Assure l'existence du fichier JSON AU CHEMIN RELATIF attendu par forecasting_tools,
-    sans jamais toucher au CWD.
-
-    Stratégie:
-    1) Si déjà présent: ok.
-    2) Sinon, essaie de télécharger le JSON upstream (raw GitHub).
-    3) Sinon, fallback minimal.
+    Assure l'existence du fichier JSON au chemin RELATIF attendu par forecasting_tools,
+    sans jamais toucher au CWD (robuste Streamlit Cloud).
     """
     p = examples_runtime_path()
     if p.exists():
@@ -82,11 +73,10 @@ def ensure_question_examples_file() -> Path:
 
     p.parent.mkdir(parents=True, exist_ok=True)
 
-    # Try remote download first (no forecasting_tools import needed)
+    # Try remote download first
     try:
         txt = _download_text(EXAMPLES_RAW_URL, timeout_sec=10)
-        # Valide JSON (évite d'écrire du HTML d'erreur)
-        json.loads(txt)
+        json.loads(txt)  # validate JSON
         p.write_text(txt, encoding="utf-8")
         return p
     except Exception:
@@ -176,7 +166,6 @@ def build_related_research(decomp: Any, q_obj: Any) -> str:
 
 
 def configure_env(provider: str, api_key: str, asknews_key: str = "", perplexity_key: str = "") -> None:
-    # Clean any prior config
     for k in [
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
@@ -202,3 +191,4 @@ def configure_env(provider: str, api_key: str, asknews_key: str = "", perplexity
     if perplexity_key:
         os.environ["PERPLEXITY_API_KEY"] = perplexity_key
         os.environ["PPLX_API_KEY"] = perplexity_key
+
