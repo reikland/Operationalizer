@@ -23,18 +23,9 @@ async def run_pipeline(
     additional_context: str,
     concurrency: int = 4,
 ) -> pd.DataFrame:
-    """
-    Exécute decomposer + operationalizer.
-
-    IMPORTANT:
-    - forecasting_tools fait un open() sur un chemin RELATIF.
-    - On crée donc le fichier attendu RELATIF AU CWD (sans os.chdir()).
-    - Zéro chdir => pas de bug Streamlit file-watcher.
-    """
-    # Ensure the relative examples file exists before importing forecasting_tools
+    # Crucial: create the relative JSON expected by forecasting_tools BEFORE imports
     ensure_question_examples_file()
 
-    # Imports after bootstrap
     from forecasting_tools.agents_and_tools.question_generators.question_decomposer import (  # noqa: E402
         QuestionDecomposer,
     )
@@ -71,9 +62,7 @@ async def run_pipeline(
             model=decomposer_model,
         )
 
-    # Safe to re-ensure (idempotent)
     ensure_question_examples_file()
-
     operationalizer = QuestionOperationalizer(model=operationalizer_model)
 
     sem = asyncio.Semaphore(int(concurrency))
@@ -115,5 +104,3 @@ async def run_pipeline(
         rows.append(row)
 
     return pd.DataFrame(rows)
-
-
