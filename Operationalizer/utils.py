@@ -5,12 +5,18 @@ import json
 import os
 import re
 import textwrap
-from contextlib import contextmanager
+import urllib.request
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 
-# Chemin relatif attendu upstream (open() relatif au CWD)
+# Path relatif attendu upstream par forecasting_tools (open() relatif au CWD)
 EXAMPLES_REL = Path(
+    "forecasting_tools/agents_and_tools/question_generators/q3_q4_quarterly_questions.json"
+)
+
+# URL raw GitHub (optionnelle) pour récupérer le fichier réel sans importer forecasting_tools
+EXAMPLES_RAW_URL = (
+    "https://raw.githubusercontent.com/Metaculus/forecasting-tools/main/"
     "forecasting_tools/agents_and_tools/question_generators/q3_q4_quarterly_questions.json"
 )
 
@@ -40,36 +46,49 @@ def get_app_dir(app_file: str) -> Path:
     return Path(app_file).resolve().parent
 
 
-def get_cache_dir() -> Path:
-    mac_cache_root = Path.home() / "Library" / "Caches"
-    cache_root = mac_cache_root if mac_cache_root.exists() else (Path.home() / ".cache")
-    cache_dir = cache_root / "forecasting-tools-streamlit-app"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir
-
-
-def examples_abs_path_in_cache() -> Path:
-    return get_cache_dir() / EXAMPLES_REL
-
-
-def ensure_question_examples_file_in_cache() -> Path:
+def examples_runtime_path() -> Path:
     """
-    Crée le fichier JSON dans le CACHE_DIR, mais NE change PAS le CWD.
-    Le CWD temporaire est géré via forecasting_tools_cwd().
+    Chemin ABSOLU du fichier examples, mais placé à un emplacement RELATIF
+    au CWD (Path.cwd()) pour satisfaire le open(relpath) upstream.
     """
-    examples_path = examples_abs_path_in_cache()
-    if examples_path.exists():
-        return examples_path
+    return Path.cwd() / EXAMPLES_REL
 
-    examples_path.parent.mkdir(parents=True, exist_ok=True)
 
+def _download_text(url: str, timeout_sec: int = 10) -> str:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0"},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+        data = resp.read()
+    # Le fichier upstream est du JSON UTF-8
+    return data.decode("utf-8")
+
+
+def ensure_question_examples_file() -> Path:
+    """
+    Assure l'existence du fichier JSON AU CHEMIN RELATIF attendu par forecasting_tools,
+    sans jamais toucher au CWD.
+
+    Stratégie:
+    1) Si déjà présent: ok.
+    2) Sinon, essaie de télécharger le JSON upstream (raw GitHub).
+    3) Sinon, fallback minimal.
+    """
+    p = examples_runtime_path()
+    if p.exists():
+        return p
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    # Try remote download first (no forecasting_tools import needed)
     try:
-        import importlib.resources as resources
-
-        pkg = "forecasting_tools.agents_and_tools.question_generators"
-        pkg_file = resources.files(pkg).joinpath(EXAMPLES_REL.name)
-        examples_path.write_text(pkg_file.read_text(encoding="utf-8"), encoding="utf-8")
-        return examples_path
+        txt = _download_text(EXAMPLES_RAW_URL, timeout_sec=10)
+        # Valide JSON (évite d'écrire du HTML d'erreur)
+        json.loads(txt)
+        p.write_text(txt, encoding="utf-8")
+        return p
     except Exception:
         fallback_examples = [
             {
@@ -79,30 +98,14 @@ def ensure_question_examples_file_in_cache() -> Path:
                 "extra_context": "Local stub provided when upstream data is unavailable.",
             }
         ]
-        examples_path.write_text(json.dumps(fallback_examples, indent=2), encoding="utf-8")
-        return examples_path
-
-
-@contextmanager
-def forecasting_tools_cwd():
-    """
-    Change le CWD UNIQUEMENT pendant l'exécution de forecasting_tools,
-    puis restaure le CWD original (critique pour Streamlit Cloud).
-    """
-    prev = Path.cwd()
-    cache_dir = get_cache_dir()
-    ensure_question_examples_file_in_cache()
-    os.chdir(cache_dir)
-    try:
-        yield cache_dir
-    finally:
-        os.chdir(prev)
+        p.write_text(json.dumps(fallback_examples, indent=2), encoding="utf-8")
+        return p
 
 
 def parse_topics_cell(x: Any) -> List[str]:
     if x is None:
         return []
-    if isinstance(x, float) and (x != x):  # NaN check
+    if isinstance(x, float) and (x != x):  # NaN
         return []
 
     if isinstance(x, list):
@@ -173,6 +176,7 @@ def build_related_research(decomp: Any, q_obj: Any) -> str:
 
 
 def configure_env(provider: str, api_key: str, asknews_key: str = "", perplexity_key: str = "") -> None:
+    # Clean any prior config
     for k in [
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
