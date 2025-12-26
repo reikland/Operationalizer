@@ -7,27 +7,17 @@ from typing import List
 import pandas as pd
 import streamlit as st
 
+from pipeline import run_pipeline
 from utils import (
-    bootstrap_forecasting_tools_runtime,
     configure_env,
+    examples_abs_path_in_cache,
     get_app_dir,
-    get_examples_abs_path,
     parse_topics_cell,
     run_async,
     unique_preserve_order,
 )
 
-# Bootstrap early (idempotent)
 APP_DIR = get_app_dir(__file__)
-examples_path = bootstrap_forecasting_tools_runtime()
-
-# Import pipeline AFTER bootstrap (safe)
-from pipeline import run_pipeline  # noqa: E402
-
-
-# =============================================================================
-# Streamlit UI
-# =============================================================================
 
 st.set_page_config(page_title="Topics CSV → proto-questions → operationalize", layout="wide")
 st.title("Topics CSV → proto-questions → operationalized questions (forecasting-tools)")
@@ -50,9 +40,7 @@ with st.sidebar:
     st.divider()
     decomposer_model = st.text_input(
         "Decomposer model",
-        value="openrouter/perplexity/sonar"
-        if mode == "fast"
-        else "openrouter/google/gemini-2.5-pro-preview",
+        value="openrouter/perplexity/sonar" if mode == "fast" else "openrouter/google/gemini-2.5-pro-preview",
     )
     operationalizer_model = st.text_input(
         "Operationalizer model",
@@ -74,17 +62,13 @@ configure_env(provider, llm_api_key, asknews_key, perplexity_key)
 with st.sidebar:
     st.divider()
     st.caption(f"Script dir: {APP_DIR}")
-    st.caption(f"CWD (cache): {Path.cwd()}")
-    st.caption(f"Examples JSON abs: {get_examples_abs_path()}")
-    st.caption(f"Examples JSON exists: {Path(get_examples_abs_path()).exists()}")
+    st.caption(f"CWD (repo/runtime): {Path.cwd()}")
+    st.caption(f"Examples JSON (cache): {examples_abs_path_in_cache()}")
+    st.caption(f"Examples JSON exists: {examples_abs_path_in_cache().exists()}")
     st.caption(f"OPENROUTER_API_KEY set: {bool(os.environ.get('OPENROUTER_API_KEY'))}")
     st.caption(f"OPENAI_API_KEY set: {bool(os.environ.get('OPENAI_API_KEY'))}")
     st.caption(f"OPENAI_API_BASE: {os.environ.get('OPENAI_API_BASE')}")
     st.caption(f"OPENAI_BASE_URL: {os.environ.get('OPENAI_BASE_URL')}")
-
-# =============================================================================
-# CSV input
-# =============================================================================
 
 uploaded = st.file_uploader("Upload CSV", type=["csv"])
 if not uploaded:
@@ -121,17 +105,10 @@ if not llm_api_key:
 
 run_btn = st.button("Generate proto-questions and operationalize", type="primary")
 
-# =============================================================================
-# Run
-# =============================================================================
-
 if run_btn:
     if not topics:
         st.error("Aucun topic détecté.")
         st.stop()
-
-    # Ensure runtime still OK (safe on reruns)
-    bootstrap_forecasting_tools_runtime()
 
     with st.spinner("Running decomposer + operationalizer..."):
         out_df = run_async(
@@ -155,3 +132,4 @@ if run_btn:
         file_name="operationalized_questions.csv",
         mime="text/csv",
     )
+
