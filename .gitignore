@@ -1,1 +1,17 @@
+# Runtime-generated scaffold for forecasting_tools relative open()
 forecasting_tools/
+Operationalizer/forecasting_tools/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS
+.DS_Store
+
+# Virtual envs
+.venv/
+venv/
+env/
