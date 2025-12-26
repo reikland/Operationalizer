@@ -63,8 +63,17 @@ def ensure_app_symlink() -> Path:
 
     target = CACHE_DIR / APP_DIR.name
 
-    if target.exists():
+    target_app = target / "app.py"
+    if target.exists() and target_app.exists():
         return target
+
+    # If something already exists but does not contain the app, remove it to
+    # avoid broken or partial copies that would hide the real code.
+    if target.exists():
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        else:
+            shutil.rmtree(target, ignore_errors=True)
 
     try:
         target.symlink_to(APP_DIR, target_is_directory=True)
