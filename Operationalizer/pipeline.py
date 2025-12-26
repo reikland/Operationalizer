@@ -6,8 +6,8 @@ Responsabilités :
 - Retourner un DataFrame résultat
 
 Important :
-- Imports forecasting_tools FAITS À L'INTÉRIEUR des fonctions, pour garantir que
-  bootstrap_all() a déjà patché le fichier JSON requis.
+- forecasting_tools utilise parfois des chemins RELATIFS pour charger des assets.
+  On exécute donc ses imports + appels dans in_forecasting_tools_cwd().
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from bootstrap import ensure_question_examples_file
+from bootstrap import ensure_question_examples_file, in_forecasting_tools_cwd
 from text_and_serialization import build_related_research, clean_indents, to_dict
 
 
@@ -41,52 +41,56 @@ async def run_pipeline(
         """
     ).strip()
 
-    # Lazy imports: forecasting_tools uniquement après bootstrap
-    from forecasting_tools.agents_and_tools.question_generators.question_decomposer import (
-        QuestionDecomposer,
-    )
-    from forecasting_tools.agents_and_tools.question_generators.question_operationalizer import (
-        QuestionOperationalizer,
-    )
-
-    decomposer = QuestionDecomposer()
-
-    if mode == "deep":
-        decomp = await decomposer.decompose_into_questions_deep(
-            fuzzy_topic_or_question=fuzzy,
-            related_research=None,
-            additional_context=additional_context,
-            number_of_questions=int(total_questions),
-            model=decomposer_model,
+    # IMPORTANT: tout usage de forecasting_tools doit être dans ce bloc
+    with in_forecasting_tools_cwd():
+        from forecasting_tools.agents_and_tools.question_generators.question_decomposer import (
+            QuestionDecomposer,
         )
-    else:
-        decomp = await decomposer.decompose_into_questions_fast(
-            fuzzy_topic_or_question=fuzzy,
-            related_research=None,
-            additional_context=additional_context,
-            number_of_questions=int(total_questions),
-            model=decomposer_model,
+        from forecasting_tools.agents_and_tools.question_generators.question_operationalizer import (
+            QuestionOperationalizer,
         )
 
-    # (Re-)assure que le fichier est là avant operationalizer
-    ensure_question_examples_file()
-    operationalizer = QuestionOperationalizer(model=operationalizer_model)
+        decomposer = QuestionDecomposer()
 
-    sem = asyncio.Semaphore(int(concurrency))
-
-    async def operationalize_one(q_obj: Any):
-        async with sem:
-            title = q_obj.question_or_idea_text
-            related = build_related_research(decomp, q_obj)
-            sq = await operationalizer.operationalize_question(
-                question_title=title,
-                related_research=related,
+        if mode == "deep":
+            decomp = await decomposer.decompose_into_questions_deep(
+                fuzzy_topic_or_question=fuzzy,
+                related_research=None,
                 additional_context=additional_context,
+                number_of_questions=int(total_questions),
+                model=decomposer_model,
             )
-            return q_obj, sq
+        else:
+            decomp = await decomposer.decompose_into_questions_fast(
+                fuzzy_topic_or_question=fuzzy,
+                related_research=None,
+                additional_context=additional_context,
+                number_of_questions=int(total_questions),
+                model=decomposer_model,
+            )
 
-    pairs = await asyncio.gather(*[operationalize_one(q) for q in decomp.decomposed_questions])
+        # (Re-)assure que le fichier est là avant operationalizer
+        ensure_question_examples_file()
+        operationalizer = QuestionOperationalizer(model=operationalizer_model)
 
+        sem = asyncio.Semaphore(int(concurrency))
+
+        async def operationalize_one(q_obj: Any):
+            async with sem:
+                title = q_obj.question_or_idea_text
+                related = build_related_research(decomp, q_obj)
+                sq = await operationalizer.operationalize_question(
+                    question_title=title,
+                    related_research=related,
+                    additional_context=additional_context,
+                )
+                return q_obj, sq
+
+        pairs = await asyncio.gather(
+            *[operationalize_one(q) for q in decomp.decomposed_questions]
+        )
+
+    # Ici, on est revenu au cwd original (context manager terminé)
     rows: List[Dict[str, Any]] = []
     for q_obj, sq in pairs:
         qd = to_dict(q_obj)
