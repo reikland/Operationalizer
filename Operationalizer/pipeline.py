@@ -9,6 +9,7 @@ Important :
 - Imports forecasting_tools FAITS À L'INTÉRIEUR des fonctions, pour garantir que
   bootstrap_all() a déjà patché le fichier JSON requis.
 """
+from bootstrap import forecasting_tools_cwd
 
 from __future__ import annotations
 
