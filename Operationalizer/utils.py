@@ -5,17 +5,35 @@ import json
 import os
 import re
 import textwrap
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List
 
-
-# =============================================================================
-# Paths / bootstrap
-# =============================================================================
-
+# Chemin relatif attendu upstream (open() relatif au CWD)
 EXAMPLES_REL = Path(
     "forecasting_tools/agents_and_tools/question_generators/q3_q4_quarterly_questions.json"
 )
+
+_SPLIT_RE = re.compile(r"[;\n,\|]+")
+
+
+def clean_indents(s: str) -> str:
+    return textwrap.dedent(s).strip()
+
+
+def run_async(coro):
+    """Run an async coroutine from Streamlit safely."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            new_loop = asyncio.new_event_loop()
+            try:
+                return new_loop.run_until_complete(coro)
+            finally:
+                new_loop.close()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
 
 def get_app_dir(app_file: str) -> Path:
@@ -30,25 +48,16 @@ def get_cache_dir() -> Path:
     return cache_dir
 
 
-def get_examples_abs_path() -> Path:
-    """
-    Absolute path in CACHE_DIR where we create the JSON file such that the relative
-    path EXAMPLES_REL exists when we chdir into CACHE_DIR.
-    """
+def examples_abs_path_in_cache() -> Path:
     return get_cache_dir() / EXAMPLES_REL
 
 
-def bootstrap_forecasting_tools_runtime() -> Path:
+def ensure_question_examples_file_in_cache() -> Path:
     """
-    - Ensures CACHE_DIR exists
-    - chdir into CACHE_DIR
-    - Ensures EXAMPLES_REL exists (writes from package resource if possible, else fallback)
-    Returns the absolute path to the ensured examples JSON.
+    Crée le fichier JSON dans le CACHE_DIR, mais NE change PAS le CWD.
+    Le CWD temporaire est géré via forecasting_tools_cwd().
     """
-    cache_dir = get_cache_dir()
-    os.chdir(cache_dir)
-
-    examples_path = get_examples_abs_path()
+    examples_path = examples_abs_path_in_cache()
     if examples_path.exists():
         return examples_path
 
@@ -57,8 +66,8 @@ def bootstrap_forecasting_tools_runtime() -> Path:
     try:
         import importlib.resources as resources
 
-        pkg_dir = "forecasting_tools.agents_and_tools.question_generators"
-        pkg_file = resources.files(pkg_dir).joinpath(EXAMPLES_REL.name)
+        pkg = "forecasting_tools.agents_and_tools.question_generators"
+        pkg_file = resources.files(pkg).joinpath(EXAMPLES_REL.name)
         examples_path.write_text(pkg_file.read_text(encoding="utf-8"), encoding="utf-8")
         return examples_path
     except Exception:
@@ -74,44 +83,27 @@ def bootstrap_forecasting_tools_runtime() -> Path:
         return examples_path
 
 
-# =============================================================================
-# Generic helpers
-# =============================================================================
-
-def clean_indents(s: str) -> str:
-    return textwrap.dedent(s).strip()
-
-
-def run_async(coro):
+@contextmanager
+def forecasting_tools_cwd():
     """
-    Run an async coroutine from Streamlit safely.
+    Change le CWD UNIQUEMENT pendant l'exécution de forecasting_tools,
+    puis restaure le CWD original (critique pour Streamlit Cloud).
     """
+    prev = Path.cwd()
+    cache_dir = get_cache_dir()
+    ensure_question_examples_file_in_cache()
+    os.chdir(cache_dir)
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            new_loop = asyncio.new_event_loop()
-            try:
-                return new_loop.run_until_complete(coro)
-            finally:
-                new_loop.close()
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
-
-
-_SPLIT_RE = re.compile(r"[;\n,\|]+")
+        yield cache_dir
+    finally:
+        os.chdir(prev)
 
 
 def parse_topics_cell(x: Any) -> List[str]:
-    # Avoid importing pandas in utils to keep it lightweight.
     if x is None:
         return []
-
-    # Handle string "nan" or empty-ish values robustly
-    if isinstance(x, float):
-        # We can’t call pd.isna here, but NaN != NaN holds
-        if x != x:  # NaN check
-            return []
+    if isinstance(x, float) and (x != x):  # NaN check
+        return []
 
     if isinstance(x, list):
         raw = x
@@ -162,12 +154,25 @@ def to_dict(obj: Any) -> Any:
     return str(obj)
 
 
-def configure_env(
-    provider: str,
-    api_key: str,
-    asknews_key: str = "",
-    perplexity_key: str = "",
-) -> None:
+def build_related_research(decomp: Any, q_obj: Any) -> str:
+    qd = to_dict(q_obj)
+    return clean_indents(
+        f"""
+        Decomposer general research & approach:
+        {getattr(decomp, "general_research_and_approach", "")}
+
+        Proto-question (from decomposer):
+        - Title: {qd.get("question_or_idea_text")}
+        - Resolution process: {qd.get("resolution_process")}
+        - Expected resolution date: {qd.get("expected_resolution_date")}
+        - Background information: {qd.get("background_information")}
+        - Past resolution / base rate: {qd.get("past_resolution")}
+        - Other information: {qd.get("other_information")}
+        """
+    ).strip()
+
+
+def configure_env(provider: str, api_key: str, asknews_key: str = "", perplexity_key: str = "") -> None:
     for k in [
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
@@ -193,25 +198,3 @@ def configure_env(
     if perplexity_key:
         os.environ["PERPLEXITY_API_KEY"] = perplexity_key
         os.environ["PPLX_API_KEY"] = perplexity_key
-
-
-def build_related_research(decomp: Any, q_obj: Any) -> str:
-    """
-    decomp: DecompositionResult (typed as Any to avoid importing forecasting_tools types here)
-    q_obj: decomposed question object
-    """
-    qd = to_dict(q_obj)
-    return clean_indents(
-        f"""
-        Decomposer general research & approach:
-        {getattr(decomp, "general_research_and_approach", "")}
-
-        Proto-question (from decomposer):
-        - Title: {qd.get("question_or_idea_text")}
-        - Resolution process: {qd.get("resolution_process")}
-        - Expected resolution date: {qd.get("expected_resolution_date")}
-        - Background information: {qd.get("background_information")}
-        - Past resolution / base rate: {qd.get("past_resolution")}
-        - Other information: {qd.get("other_information")}
-        """
-    ).strip()
