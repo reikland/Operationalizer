@@ -10,7 +10,8 @@ import streamlit as st
 from pipeline import run_pipeline
 from utils import (
     configure_env,
-    examples_abs_path_in_cache,
+    ensure_question_examples_file,
+    examples_runtime_path,
     get_app_dir,
     parse_topics_cell,
     run_async,
@@ -18,6 +19,9 @@ from utils import (
 )
 
 APP_DIR = get_app_dir(__file__)
+
+# Bootstrap early (no chdir)
+ensure_question_examples_file()
 
 st.set_page_config(page_title="Topics CSV → proto-questions → operationalize", layout="wide")
 st.title("Topics CSV → proto-questions → operationalized questions (forecasting-tools)")
@@ -62,9 +66,9 @@ configure_env(provider, llm_api_key, asknews_key, perplexity_key)
 with st.sidebar:
     st.divider()
     st.caption(f"Script dir: {APP_DIR}")
-    st.caption(f"CWD (repo/runtime): {Path.cwd()}")
-    st.caption(f"Examples JSON (cache): {examples_abs_path_in_cache()}")
-    st.caption(f"Examples JSON exists: {examples_abs_path_in_cache().exists()}")
+    st.caption(f"CWD (runtime): {Path.cwd()}")
+    st.caption(f"Examples JSON (runtime): {examples_runtime_path()}")
+    st.caption(f"Examples JSON exists: {examples_runtime_path().exists()}")
     st.caption(f"OPENROUTER_API_KEY set: {bool(os.environ.get('OPENROUTER_API_KEY'))}")
     st.caption(f"OPENAI_API_KEY set: {bool(os.environ.get('OPENAI_API_KEY'))}")
     st.caption(f"OPENAI_API_BASE: {os.environ.get('OPENAI_API_BASE')}")
@@ -132,4 +136,5 @@ if run_btn:
         file_name="operationalized_questions.csv",
         mime="text/csv",
     )
+
 
