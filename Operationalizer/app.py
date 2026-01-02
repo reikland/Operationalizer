@@ -20,7 +20,6 @@ from utils import (
 
 APP_DIR = get_app_dir(__file__)
 
-# Bootstrap early (no chdir)
 ensure_question_examples_file()
 
 st.set_page_config(page_title="Topics CSV → proto-questions → operationalize", layout="wide")
